@@ -302,6 +302,35 @@ input[type="checkbox"] { accent-color: #ffffff; width: 16px; height: 16px; }
 .phase-list .r-est { margin-left: auto; font-family: var(--mono); color: var(--ink-dim); white-space: nowrap; }
 .roadmap-note { font-size: 13px; color: var(--ink-dim); border: 1px solid var(--line-soft); padding: 8px 12px; margin-bottom: 14px; }
 
+/* telemetry & routing (round 2) */
+
+.telemetry-svg { display: block; max-width: 100%; margin-top: 6px; }
+.telemetry-svg text:not([fill]) { fill: var(--ink); font-family: var(--mono); }
+.stack-bar [data-cat] { cursor: pointer; }
+.stack-bar [data-cat]:hover rect { stroke: var(--ink); stroke-width: 1.5; }
+.stack-bar [data-cat].seg-on rect { stroke: var(--ink); stroke-width: 2; }
+.stack-bar [data-cat]:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+.trip-group { border: 1px solid var(--line-soft); margin-top: 10px; }
+.trip-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  border-bottom: 1px solid var(--line-soft); padding: 5px 9px; background: var(--blue-deep);
+}
+.trip-cluster { font-family: var(--mono); font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 700; }
+.trip-meta { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+.trip-list { list-style: none; margin: 0; padding: 4px 9px 6px; }
+.trip-list li {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  padding: 3px 0; border-bottom: 1px solid var(--line-faint); font-size: 13px;
+}
+.trip-list li:last-child { border-bottom: none; }
+.trip-name { font-weight: 600; }
+.trip-chips { display: inline-flex; gap: 5px; flex-wrap: wrap; }
+.stack-chip {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.6px;
+  border: 1px solid var(--amber); color: var(--amber); padding: 1px 6px; white-space: nowrap;
+}
+
 /* ---------- save data ---------- */
 
 .save-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }

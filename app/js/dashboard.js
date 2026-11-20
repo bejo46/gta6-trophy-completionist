@@ -7,6 +7,7 @@
 // trophy table, scaled by the player's calibration multiplier.
 
 import { calibratedMin, projectedPlatinumDate, formatHours, formatDate } from './data.js';
+import { burndownSVG, categoryBarSVG, categoryLoad, categoryOf, optimizerGroups } from './telemetry.js';
 import { startActive } from './store.js';
 import { stopActiveSession } from './sessionlog.js';
 
@@ -159,6 +160,17 @@ export function renderDashboard(root, ctx, preset) {
             </div>
           </div>
         </section>
+
+        <section class="panel">
+          <div class="panel-head"><h2>Telemetry &amp; routing</h2><span class="hint">The sheet as an instrument: burn-down, category load, one-trip routing.</span></div>
+          <div class="panel-body">
+            ${burndownSVG(stats, mult)}
+            <p class="burn-caption">telemetry: ${formatHours(stats.remainingMin)} left on the sheet (estimate). Clear shortest stops first — the bar moves fastest early.</p>
+            ${categoryBarSVG(categoryLoad(trophies, state, mult))}
+            <p class="burn-caption">Select a category to filter the routing queue.</p>
+            <div data-optimizer></div>
+          </div>
+        </section>
       </div>
     </div>`;
 
@@ -223,6 +235,57 @@ export function renderDashboard(root, ctx, preset) {
       paintPackage();
     });
   });
+
+  // --- telemetry & routing: One-Trip Optimizer ---
+  // Category segments in the load bar filter this queue. The filter is a
+  // closure variable: repainting touches only the optimizer container,
+  // never the rest of the dashboard.
+  let catFilter = null;
+  const optimizerEl = root.querySelector('[data-optimizer]');
+
+  function paintOptimizer() {
+    const groups = optimizerGroups(trophies, state, mult);
+    const html = groups
+      .map((g) => {
+        const stops = catFilter ? g.stops.filter((s) => categoryOf(s.trophy) === catFilter) : g.stops;
+        if (stops.length === 0) return '';
+        const shownMin = stops.reduce((sum, s) => sum + s.min, 0);
+        const lines = stops
+          .map((s) => {
+            const chips = s.stacks
+              .map((st) => `<span class="stack-chip" title="${st.note}">1 run: ${st.label}</span>`)
+              .join(' ');
+            return `<li><span class="trip-name">${s.trophy.name} — Est. ${s.min} min</span>${chips ? `<span class="trip-chips">${chips}</span>` : ''}</li>`;
+          })
+          .join('');
+        return `<div class="trip-group">
+          <div class="trip-head"><span class="trip-cluster">${g.cluster}</span><span class="trip-meta">${stops.length} stops · ${(shownMin / 60).toFixed(1)} h est.</span></div>
+          <ul class="trip-list">${lines}</ul>
+        </div>`;
+      })
+      .join('');
+    optimizerEl.innerHTML =
+      (catFilter ? `<p class="burn-caption">routing filtered: ${catFilter} — select the segment again to clear.</p>` : '') +
+      (html || '<p class="package-empty">No unearned trophies in this category. Clear the filter or pick another segment.</p>');
+  }
+
+  root.querySelectorAll('.stack-bar [data-cat]').forEach((seg) => {
+    const toggle = () => {
+      const cat = seg.getAttribute('data-cat');
+      catFilter = catFilter === cat ? null : cat;
+      root.querySelectorAll('.stack-bar [data-cat]').forEach((s) => s.classList.toggle('seg-on', s.getAttribute('data-cat') === catFilter));
+      paintOptimizer();
+    };
+    seg.addEventListener('click', toggle);
+    seg.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  });
+
+  paintOptimizer();
 
   paintTypeButtons();
   paintPackage();

@@ -14,6 +14,7 @@ An offline completionist dashboard, guide and tracker for all 55 Grand Theft Aut
 - **Trophy index** — all 55 trophies ordered by estimate, with kind/grade/search filters, hide-earned, counters with −/+ controls (reaching a target auto-marks the trophy earned), and a spoiler shield that seals unearned story trophies. Each trophy opens a detail panel with its full guide in our own words, 3 steps, a plain-text timing note where timing matters, and its named sources.
 - **Roadmap** — the road to the platinum in time-band phases (quick wins, one-session trophies, counters, long grinds, platinum closer), built from the official trophy descriptions.
 - **Save data** — export progress as JSON (download or copy), import it back with validation, reset, and a demo mode that seeds a mid-run save.
+- **Telemetry & routing (round 2)** — the sheet read as an instrument. Readout: pure-SVG telemetry on the dashboard — a burn-down bar (banked vs remaining estimated hours, ticked in quarters) and a category load bar (remaining hours per telemetry load: Story, Collectibles, Stunts & Challenges, Grind, Online / Misc; select a segment to filter the queue). Routing: the One-Trip Optimizer groups every unearned trophy by Leonida cluster — Vice City, Grassrivers, Port Gellhorn, Leonida-wide — stops sorted shortest estimate first, each group totalled in stops and hours. Stacked stops carry a chip: trophies that share a mechanic, a place, or one heat run clear in a single trip. Est. figures only; travel is the tax, stacking is the rebate.
 
 ## How to run
 
