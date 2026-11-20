@@ -1,151 +1,111 @@
-// data.js — loads the trophy sheet and derives everything the views need.
-//
-// The canonical file (data/trophies.json) carries the official name,
-// description and grade for all 55 trophies plus this app's own fields.
-// Two things are deliberately NOT in that file, because the official list
-// does not state them as fields: whether a trophy is hidden on PSN, and its
-// numeric target. Hidden trophies are the story ones (the spoiler shield
-// seals those), and the targets below are read straight off the official
-// descriptions — 250 stunts, 42 range challenges, 100 locations, and so on.
-
-export const TARGETS = {
-  15: 250,   // Complete 250 Stunts
-  16: 9,     // each type of activity (9 types)
-  17: 42,    // all Shooting Range challenges (42)
-  18: 14,    // a drone race at every location (14)
-  19: 20,    // Win 20 different races
-  25: 8,     // Complete 8 mission strands
-  28: 18,    // Meditate at every spot (18)
-  30: 3,     // Complete 3 Collectible Card sets
-  31: 100,   // WAiNK It at 100 locations
-  32: 50,    // Complete 50 Challenges
-  34: 3,     // Rob 3 shops back-to-back
-  35: 100,   // Discover 100 vehicles
-  36: 5,     // 5 enemies in a single Combat Focus
-  40: 5,     // Rob 5 Bank Vaults
-  42: 52,    // Explore all of Leonida (52 areas)
-  43: 9,     // each gang (9 gangs)
-  48: 500,   // Choices made (count to 500)
-  52: 250000, // $250,000 laundering Marked Bills
-  53: 100000, // Spend $100,000 across all shops
-  54: 8,     // all garage properties (8)
-  55: 10,    // Register 10 vehicles
-};
-
-export function targetFor(trophy) {
-  return TARGETS[trophy.id] ?? null;
-}
-
-// Story trophies are the ones PSN keeps hidden until they pop; the spoiler
-// shield seals exactly these while they are unearned.
-export function isHiddenStory(trophy) {
-  return trophy.kind === 'story';
-}
-
-let cache = null;
-
-export async function loadTrophies() {
-  if (cache) return cache;
-  const res = await fetch('data/trophies.json');
-  if (!res.ok) throw new Error('Could not load data/trophies.json');
-  const doc = await res.json();
-  cache = doc.trophies;
-  return cache;
-}
+// data.js — loads the trophy table and turns it into the numbers the
+// dashboard runs on. The table itself (app/data/trophies.json) carries the
+// official names, descriptions and grades plus this guide's own fields:
+// kind, missable flag and timing note, est_min, effort_type, repeatable,
+// an optional count target, a one-line note, a guide, 3 steps, sources.
 
 export const KINDS = ['story', 'collectibles', 'activities', 'misc'];
 export const GRADES = ['platinum', 'gold', 'silver', 'bronze'];
-export const EFFORTS = ['chill', 'skill', 'grind'];
+export const EFFORT_TYPES = ['chill', 'skill', 'grind'];
 
-export function byTime(list) {
-  return [...list].sort((a, b) => a.est_min - b.est_min || a.id - b.id);
+let trophies = [];
+let byIdMap = new Map();
+
+export async function loadTrophies() {
+  const res = await fetch('data/trophies.json');
+  if (!res.ok) throw new Error('Could not load data/trophies.json');
+  const doc = await res.json();
+  trophies = Array.isArray(doc) ? doc : doc.trophies;
+  byIdMap = new Map(trophies.map((t) => [t.id, t]));
+  return trophies;
 }
 
-export function completionStats(trophies, state) {
+export function allTrophies() {
+  return trophies;
+}
+
+export function trophyById(id) {
+  return byIdMap.get(id);
+}
+
+export function trophyByName(name) {
+  const wanted = String(name || '').trim().toLowerCase();
+  return trophies.find((t) => t.name.toLowerCase() === wanted) || null;
+}
+
+// A displayed estimate is the raw est_min scaled by the player's personal
+// calibration multiplier, rounded to a whole minute, never below 1.
+export function calibratedMin(trophy, mult) {
+  return Math.max(1, Math.round(trophy.est_min * mult));
+}
+
+export function isSealed(trophy, state) {
+  return Boolean(
+    state.settings.spoilerShield && trophy.kind === 'story' && !state.earned.includes(trophy.id),
+  );
+}
+
+export function unearnedMissables(state) {
+  return trophies.filter((t) => t.missable && !state.earned.includes(t.id));
+}
+
+// The headline numbers of the blueprint, all derived in one place so the
+// KPI strip, the dial and the analytics panel can never disagree.
+export function computeStats(state, mult) {
   const earnedSet = new Set(state.earned);
-  const total = trophies.length;
-  const earned = trophies.filter((t) => earnedSet.has(t.id)).length;
-  const perKind = {};
-  for (const k of KINDS) {
-    const inKind = trophies.filter((t) => t.kind === k);
-    perKind[k] = {
+  const earned = trophies.filter((t) => earnedSet.has(t.id));
+  const unearned = trophies.filter((t) => !earnedSet.has(t.id));
+  const remainingMin = unearned.reduce((sum, t) => sum + calibratedMin(t, mult), 0);
+  const totalMin = trophies.reduce((sum, t) => sum + calibratedMin(t, mult), 0);
+
+  const kinds = {};
+  for (const kind of KINDS) {
+    const inKind = trophies.filter((t) => t.kind === kind);
+    kinds[kind] = {
       total: inKind.length,
       earned: inKind.filter((t) => earnedSet.has(t.id)).length,
     };
   }
-  const perGrade = {};
-  for (const g of GRADES) {
-    const inGrade = trophies.filter((t) => t.grade === g);
-    perGrade[g] = {
+
+  const grades = {};
+  for (const grade of GRADES) {
+    const inGrade = trophies.filter((t) => t.grade === grade);
+    grades[grade] = {
       total: inGrade.length,
       earned: inGrade.filter((t) => earnedSet.has(t.id)).length,
     };
   }
+
   return {
-    total,
-    earned,
-    pct: total ? Math.round((earned / total) * 100) : 0,
-    perKind,
-    perGrade,
+    total: trophies.length,
+    earnedCount: earned.length,
+    pct: trophies.length ? (earned.length / trophies.length) * 100 : 0,
+    remainingMin,
+    remainingHours: remainingMin / 60,
+    totalMin,
+    kinds,
+    grades,
+    missablesAtRisk: unearnedMissables(state).length,
   };
 }
 
-// Burn-down figure: estimated hours still on the sheet.
-export function remainingHours(trophies, state) {
-  const earnedSet = new Set(state.earned);
-  const mins = trophies
-    .filter((t) => !earnedSet.has(t.id))
-    .reduce((s, t) => s + t.est_min, 0);
-  return mins / 60;
+// Projected platinum date: remaining hours divided by the current pace,
+// projected forward from today. Null when there is no pace to project with.
+export function projectedPlatinumDate(stats, pace, now = new Date()) {
+  if (!pace || pace <= 0 || stats.remainingMin <= 0) return null;
+  const weeks = stats.remainingHours / pace;
+  const date = new Date(now.getTime() + weeks * 7 * 24 * 3600 * 1000);
+  return date;
 }
 
-export function earnedHours(trophies, state) {
-  const earnedSet = new Set(state.earned);
-  const mins = trophies
-    .filter((t) => earnedSet.has(t.id))
-    .reduce((s, t) => s + t.est_min, 0);
-  return mins / 60;
+export function formatHours(min) {
+  return (min / 60).toFixed(1) + ' h';
 }
 
-// Projected platinum date: remaining hours spread over the current pace.
-// Returns null when there is no pace yet (no logged sessions).
-export function projectedDate(trophies, state, paceHrsPerWeek, now = Date.now()) {
-  const left = remainingHours(trophies, state);
-  if (left <= 0) return new Date(now);
-  if (!paceHrsPerWeek || paceHrsPerWeek <= 0) return null;
-  const weeks = left / paceHrsPerWeek;
-  return new Date(now + weeks * 7 * 86400000);
+export function formatDate(date) {
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-// The session builder's picking rule: unearned trophies of the chosen
-// effort type, cheapest estimate first, added while they fit the budget.
-// A trophy longer than the whole budget is never picked; if nothing fits
-// at all, the single cheapest candidate is offered on its own so the
-// player still gets a package.
-export function buildPackage(trophies, state, budgetMin, effortType) {
-  const earnedSet = new Set(state.earned);
-  const candidates = byTime(
-    trophies.filter((t) => !earnedSet.has(t.id) && t.effort_type === effortType && t.est_min > 0),
-  );
-  const picked = [];
-  let total = 0;
-  for (const t of candidates) {
-    if (total + t.est_min <= budgetMin) {
-      picked.push(t);
-      total += t.est_min;
-    }
-  }
-  if (picked.length === 0 && candidates.length > 0) {
-    picked.push(candidates[0]);
-    total = candidates[0].est_min;
-  }
-  return { items: picked, estMin: total, budgetMin, effortType };
-}
-
-export function fmtHours(h) {
-  return (Math.round(h * 10) / 10).toFixed(1);
-}
-
-export function fmtDate(d) {
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+export function formatCount(n) {
+  return Number(n).toLocaleString('en-US');
 }

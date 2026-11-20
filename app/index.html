@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -7,103 +7,41 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<svg class="grid-bg" aria-hidden="true" focusable="false">
-  <defs>
-    <pattern id="gridp" width="28" height="28" patternUnits="userSpaceOnUse">
-      <path d="M28 0H0V28" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
-    </pattern>
-    <pattern id="gridp5" width="140" height="140" patternUnits="userSpaceOnUse">
-      <path d="M140 0H0V140" fill="none" stroke="#ffffff" stroke-opacity="0.13" stroke-width="1"/>
-    </pattern>
-  </defs>
-  <rect width="100%" height="100%" fill="url(#gridp)"/>
-  <rect width="100%" height="100%" fill="url(#gridp5)"/>
-</svg>
-
-<header class="titleblock">
-  <span class="regmark tl">+</span><span class="regmark tr">+</span>
-  <span class="regmark bl">+</span><span class="regmark br">+</span>
-  <div class="tb-main">
-    <p class="tb-kicker">TECHNICAL DRAWING — TROPHY SHEET — DO NOT SCALE</p>
-    <h1>LEONIDA COMPLETIONIST</h1>
-    <p class="tb-sub">THE 100% BLUEPRINT · GRAND THEFT AUTO VI · ALL 55 PLAYSTATION 5 TROPHIES</p>
+<header class="sheet-head">
+  <div class="title-block" role="table" aria-label="Drawing title block">
+    <div class="tb-row">
+      <div class="tb-cell tb-title">
+        <span class="tb-kicker">LEONIDA COMPLETIONIST</span>
+        <h1>The 100% Blueprint</h1>
+      </div>
+      <div class="tb-cell"><span class="tb-label">Subject</span><span class="tb-value">Grand Theft Auto VI — PS5 trophies</span></div>
+      <div class="tb-cell"><span class="tb-label">Drawing no.</span><span class="tb-value">LC-100-55</span></div>
+      <div class="tb-cell"><span class="tb-label">Trophies</span><span class="tb-value">55 (1 plat · 2 gold · 6 silver · 46 bronze)</span></div>
+      <div class="tb-cell"><span class="tb-label">Scale</span><span class="tb-value">1 session = 1 sheet</span></div>
+      <div class="tb-cell"><span class="tb-label">Sheet</span><span class="tb-value">1 of 1</span></div>
+    </div>
   </div>
-  <div class="tb-cells">
-    <div class="tb-cell"><span class="tb-label">SHEET</span><span class="tb-value">01 — LEONIDA</span></div>
-    <div class="tb-cell"><span class="tb-label">COMPLETION</span><span class="tb-value" id="hdr-pct">— %</span></div>
-    <div class="tb-cell"><span class="tb-label">EARNED</span><span class="tb-value" id="hdr-earned">— / 55</span></div>
-    <div class="tb-cell"><span class="tb-label">REV</span><span class="tb-value">A · OFFLINE</span></div>
+  <div class="command-bar">
+    <nav class="view-nav" aria-label="Views">
+      <button type="button" data-view="dashboard">Dashboard</button>
+      <button type="button" data-view="index">Trophy Index</button>
+      <button type="button" data-view="log">Session Log</button>
+      <button type="button" data-view="roadmap">Roadmap</button>
+      <button type="button" data-view="save">Save Data</button>
+    </nav>
+    <form id="command-search" class="command-search" role="search">
+      <label for="command-q">Find a trophy</label>
+      <input id="command-q" type="search" placeholder="Search the index…" autocomplete="off">
+      <button type="submit">Go</button>
+    </form>
   </div>
+  <div id="active-strip" class="active-strip" hidden></div>
 </header>
 
-<nav class="tabs" id="tabs">
-  <button type="button" data-view="dashboard" class="tab active">Dashboard</button>
-  <button type="button" data-view="index" class="tab">Trophy Index</button>
-  <button type="button" data-view="log" class="tab">Session Log</button>
-  <button type="button" data-view="roadmap" class="tab">Roadmap</button>
-  <button type="button" data-view="save" class="tab">Save Data</button>
-</nav>
+<main id="view" class="view"></main>
 
-<main>
-  <section id="view-dashboard" class="view"></section>
-
-  <section id="view-index" class="view" hidden>
-    <div class="index-layout">
-      <div class="index-main">
-        <div id="index-controls"></div>
-        <div id="index-list"></div>
-      </div>
-      <aside id="detail-panel" class="panel detail-panel">
-        <p class="panel-label">DETAIL — NO TROPHY SELECTED</p>
-        <p class="muted">Select a trophy from the index to read its full guide, its three steps, and the sources it is drawn from.</p>
-      </aside>
-    </div>
-  </section>
-
-  <section id="view-log" class="view" hidden></section>
-
-  <section id="view-roadmap" class="view" hidden></section>
-
-  <section id="view-save" class="view" hidden>
-    <div class="panel">
-      <p class="panel-label">SAVE DATA — EXPORT / IMPORT / RESET</p>
-      <p class="muted">Progress, counters, settings and the session log live in this browser under one local key. Export a copy before switching browsers; import restores it. Nothing leaves this machine.</p>
-      <div class="save-grid">
-        <div>
-          <h3>EXPORT</h3>
-          <textarea id="export-box" rows="9" readonly spellcheck="false"></textarea>
-          <div class="btn-row">
-            <button type="button" id="btn-download">Download JSON</button>
-            <button type="button" id="btn-refresh-export">Refresh export text</button>
-          </div>
-        </div>
-        <div>
-          <h3>IMPORT</h3>
-          <textarea id="import-box" rows="9" placeholder="Paste an exported save here, then choose Import from text." spellcheck="false"></textarea>
-          <div class="btn-row">
-            <button type="button" id="btn-import-text">Import from text</button>
-            <label class="btn file-btn">Import from file <input type="file" id="import-file" accept=".json,application/json" hidden></label>
-          </div>
-          <p id="import-msg" class="muted" role="status"></p>
-        </div>
-        <div>
-          <h3>SETTINGS &amp; RESET</h3>
-          <label class="checkline"><input type="checkbox" id="set-spoilers"> Spoiler shield — seal unearned story trophies in the index</label>
-          <div class="btn-row">
-            <button type="button" id="btn-demo">Load demo state</button>
-            <button type="button" id="btn-reset" class="danger">Reset everything</button>
-          </div>
-          <p class="muted">Load demo state replaces the current save with the demonstration progress used in the screenshots. Reset clears the save entirely.</p>
-        </div>
-      </div>
-    </div>
-  </section>
-</main>
-
-<footer class="footline">
-  <span>LEONIDA COMPLETIONIST — SHEET 01</span>
-  <span>ALL TIMES ARE ESTIMATES</span>
-  <span>WORKS OFFLINE — NO NETWORK</span>
+<footer class="sheet-foot">
+  <p>Built from the official PlayStation trophy list — names, descriptions and grades as published, as listed by Exophase and PSNProfiles. Guide text is written for this blueprint in its own words; each trophy names its sources in its detail panel. Estimates are planning figures, not promises. This sheet works fully offline and your progress never leaves this browser.</p>
 </footer>
 
 <script type="module" src="js/app.js"></script>

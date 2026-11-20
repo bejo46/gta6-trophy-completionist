@@ -1,113 +1,74 @@
-// store.js — all persistence for the Leonida Completionist sheet.
+// store.js — everything the blueprint remembers, in one localStorage key.
 //
-// One localStorage key holds everything: earned trophy ids, per-trophy
-// counters, the spoiler setting, the session log, and (while one runs) the
-// active session timer. The calibration multiplier is never stored — it is
-// always derived from the log so the log stays the single source of truth.
+// State shape:
+//   earned    array of trophy ids the player has banked
+//   counters  map of trophy id -> current count for counted trophies
+//   settings  spoilerShield (seal unearned story trophies), hideEarned
+//   sessions  the session log: { id, date, type, estMin, actualMin, picks }
+//   active    a running session { startedAt, estMin, type, picks } or null
+//
+// Calibration and pace are derived from the log, never stored, so the
+// numbers can never drift away from the sessions that produced them.
 
 export const STORAGE_KEY = 'cyanotype-completion-log-v1';
-
-const DEMO_EARNED = [2, 3, 8, 9, 10, 11, 16, 20, 21, 28, 29, 33, 36, 37, 39, 41, 44, 45, 46, 50, 51];
-const DEMO_COUNTERS = { 15: 96, 17: 17, 31: 23, 35: 41 };
 
 function blankState() {
   return {
     earned: [],
     counters: {},
-    settings: { spoilers: true },
-    log: [],
+    settings: { spoilerShield: true, hideEarned: false },
+    sessions: [],
     active: null,
+    demoSeeded: false,
   };
 }
 
-// The demonstration state used by the screenshots: 21 of 55 earned, a few
-// counters partway, and one logged session from yesterday that ran long —
-// 47 actual minutes against a 40 minute estimate — so the calibration
-// multiplier and the pace figure are visibly alive on first load.
-export function demoState() {
-  const s = blankState();
-  s.earned = [...DEMO_EARNED];
-  s.counters = { ...DEMO_COUNTERS };
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  s.log = [{
-    date: yesterday.toISOString(),
-    label: 'Story opener + arcade cabinet',
-    trophyIds: [2, 21],
-    estMin: 40,
-    actualMin: 47,
-  }];
-  return s;
-}
+let state = loadState();
 
-function isValidState(v) {
-  if (!v || typeof v !== 'object') return false;
-  if (!Array.isArray(v.earned) || !v.earned.every((n) => Number.isInteger(n))) return false;
-  if (!v.counters || typeof v.counters !== 'object' || Array.isArray(v.counters)) return false;
-  if (!Object.values(v.counters).every((n) => Number.isFinite(n) && n >= 0)) return false;
-  if (!v.settings || typeof v.settings.spoilers !== 'boolean') return false;
-  if (!Array.isArray(v.log)) return false;
-  for (const e of v.log) {
-    if (!e || typeof e.date !== 'string' || !Number.isFinite(e.estMin) || !Number.isFinite(e.actualMin)) return false;
-    if (!Array.isArray(e.trophyIds)) return false;
-  }
-  if (v.active !== null) {
-    if (!v.active || !Number.isFinite(v.active.startedAt) || !Array.isArray(v.active.trophyIds)) return false;
-  }
-  return true;
-}
-
-let state = blankState();
-const listeners = new Set();
-
-export function onChange(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-}
-
-function emit() {
-  save();
-  for (const fn of listeners) fn(state);
-}
-
-export function save() {
+function loadState() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return blankState();
+    const parsed = JSON.parse(raw);
+    const merged = { ...blankState(), ...parsed };
+    merged.settings = { ...blankState().settings, ...(parsed.settings || {}) };
+    if (!Array.isArray(merged.earned)) merged.earned = [];
+    if (!Array.isArray(merged.sessions)) merged.sessions = [];
+    if (typeof merged.counters !== 'object' || merged.counters === null) merged.counters = {};
+    return merged;
   } catch {
-    // Storage full or blocked: the in-memory state still works this session.
+    return blankState();
   }
-}
-
-export function load() {
-  let raw = null;
-  try {
-    raw = localStorage.getItem(STORAGE_KEY);
-  } catch {
-    raw = null;
-  }
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (isValidState(parsed)) {
-        state = parsed;
-        return state;
-      }
-    } catch {
-      // Corrupt save: fall through to a fresh state rather than crashing.
-    }
-  }
-  // Nothing saved yet: the demo link seeds the demonstration state.
-  if (new URLSearchParams(location.search).get('demo') === '1') {
-    state = demoState();
-    save();
-    return state;
-  }
-  state = blankState();
-  return state;
 }
 
 export function getState() {
   return state;
 }
+
+export function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Storage blocked or full: the in-memory state still drives the page.
+  }
+}
+
+export function replaceState(next) {
+  state = { ...blankState(), ...next };
+  state.settings = { ...blankState().settings, ...(next.settings || {}) };
+  saveState();
+}
+
+export function resetState() {
+  state = blankState();
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing to remove if storage is unavailable.
+  }
+}
+
+/* ----- earned + counters ----- */
 
 export function isEarned(id) {
   return state.earned.includes(id);
@@ -117,115 +78,161 @@ export function setEarned(id, on) {
   const has = state.earned.includes(id);
   if (on && !has) state.earned.push(id);
   if (!on && has) state.earned = state.earned.filter((x) => x !== id);
-  if (on !== has) emit();
+  saveState();
 }
 
-export function toggleEarned(id) {
-  setEarned(id, !isEarned(id));
+export function counterOf(id) {
+  return state.counters[id] || 0;
 }
 
-export function getCounter(id) {
-  return state.counters[id] ?? 0;
+export function setCounter(id, value, target) {
+  const v = Math.max(0, Math.min(target, Math.floor(Number(value) || 0)));
+  state.counters[id] = v;
+  if (target > 0 && v >= target && !isEarned(id)) {
+    state.earned.push(id);
+  }
+  saveState();
+  return v;
 }
 
-export function setCounter(id, n) {
-  state.counters[id] = Math.max(0, Math.floor(n));
-  emit();
+/* ----- sessions, calibration, pace ----- */
+
+export function addSession(entry) {
+  const session = {
+    id: 's' + Date.now().toString(36) + Math.floor(Math.random() * 999),
+    date: entry.date || new Date().toISOString(),
+    type: entry.type || 'chill',
+    estMin: Math.max(0, Math.round(entry.estMin || 0)),
+    actualMin: Math.max(0, Math.round(entry.actualMin || 0)),
+    picks: Array.isArray(entry.picks) ? entry.picks.slice() : [],
+  };
+  state.sessions.push(session);
+  saveState();
+  return session;
 }
 
-export function setSpoilers(on) {
-  state.settings.spoilers = Boolean(on);
-  emit();
+export function removeSession(id) {
+  state.sessions = state.sessions.filter((s) => s.id !== id);
+  saveState();
 }
 
-// --- session log & calibration -------------------------------------------
+export function startActive(pkg) {
+  state.active = {
+    startedAt: Date.now(),
+    estMin: pkg.total,
+    type: pkg.type,
+    picks: pkg.picks.map((p) => p.trophy.id),
+  };
+  saveState();
+  return state.active;
+}
 
-// Personal estimate multiplier: total actual minutes / total estimated
-// minutes across the log, clamped to [0.5, 2.0]. With no log it is 1.
-export function multiplier() {
+export function clearActive() {
+  state.active = null;
+  saveState();
+}
+
+// Personal calibration multiplier: total actual minutes over total
+// estimated minutes across the whole log, clamped to 0.5–2.0 so one odd
+// session cannot bend every estimate on the sheet.
+export function calibration() {
   let est = 0;
   let act = 0;
-  for (const e of state.log) {
-    est += e.estMin;
-    act += e.actualMin;
+  for (const s of state.sessions) {
+    est += s.estMin;
+    act += s.actualMin;
   }
   if (est <= 0 || act <= 0) return 1;
   return Math.min(2, Math.max(0.5, act / est));
 }
 
-// Pace in hours per week, derived from the log: total actual play time
-// divided by the span it covers (first entry to now), with the span
-// floored at one day so a single fresh session still yields a figure.
-export function paceHoursPerWeek(now = Date.now()) {
-  if (state.log.length === 0) return 0;
-  const totalMin = state.log.reduce((s, e) => s + e.actualMin, 0);
-  const first = Math.min(...state.log.map((e) => Date.parse(e.date)));
-  const spanDays = Math.max(1, (now - first) / 86400000);
-  return (totalMin / 60 / spanDays) * 7;
+// Pace in hours per week: actual minutes logged in the trailing 7 days.
+export function paceHoursPerWeek(now = new Date()) {
+  const weekAgo = now.getTime() - 7 * 24 * 3600 * 1000;
+  let mins = 0;
+  for (const s of state.sessions) {
+    const t = new Date(s.date).getTime();
+    if (t >= weekAgo && t <= now.getTime()) mins += s.actualMin;
+  }
+  return mins / 60;
 }
 
-export function startSession(pkg) {
-  state.active = {
-    startedAt: Date.now(),
-    label: pkg.label,
-    trophyIds: [...pkg.trophyIds],
-    estMin: pkg.estMin,
-  };
-  emit();
+export function totalActualMin() {
+  return state.sessions.reduce((sum, s) => sum + s.actualMin, 0);
 }
 
-export function activeSession() {
-  return state.active;
+/* ----- demo seeding -----
+   With ?demo=1 and nothing saved yet, seed a believable mid-run state:
+   21 of 55 trophies earned across every kind, partial counters, and one
+   session logged yesterday (40 estimated vs 47 actual minutes) so the
+   calibration multiplier (~x1.18) and pace are alive on first load. */
+
+export function seedDemo() {
+  if (state.demoSeeded) return false;
+  if (state.earned.length > 0 || state.sessions.length > 0) return false;
+  state.earned = [
+    2, 3, 8, 9, 10, 11, 22, // story
+    16, 20, 21, 41, 46, // activities
+    28, 35, // collectibles
+    33, 34, 36, 44, 45, 51, 55, // misc
+  ];
+  state.counters = { 15: 87, 17: 19, 31: 34, 42: 21, 48: 132, 53: 41250 };
+  const yesterday = new Date(Date.now() - 24 * 3600 * 1000);
+  state.sessions = [
+    {
+      id: 'demo-session-1',
+      date: yesterday.toISOString(),
+      type: 'skill',
+      estMin: 40,
+      actualMin: 47,
+      picks: [36, 45],
+    },
+  ];
+  state.demoSeeded = true;
+  saveState();
+  return true;
 }
 
-export function stopSession() {
-  if (!state.active) return null;
-  const actualMin = Math.max(1, Math.round((Date.now() - state.active.startedAt) / 60000));
-  const entry = {
-    date: new Date().toISOString(),
-    label: state.active.label,
-    trophyIds: [...state.active.trophyIds],
-    estMin: state.active.estMin,
-    actualMin,
-  };
-  state.log.push(entry);
-  state.active = null;
-  emit();
-  return entry;
-}
-
-export function cancelSession() {
-  state.active = null;
-  emit();
-}
-
-// --- export / import / reset ----------------------------------------------
+/* ----- export / import ----- */
 
 export function exportJSON() {
-  return JSON.stringify({ app: 'leonida-completionist', version: 1, state }, null, 2);
+  return JSON.stringify(
+    {
+      app: 'leonida-completionist',
+      version: 1,
+      earned: state.earned,
+      counters: state.counters,
+      settings: state.settings,
+      sessions: state.sessions,
+    },
+    null,
+    2,
+  );
 }
 
-export function importJSON(text) {
-  const parsed = JSON.parse(text);
-  const candidate = parsed && parsed.state ? parsed.state : parsed;
-  if (!isValidState(candidate)) throw new Error('Not a valid Leonida Completionist save.');
-  state = candidate;
-  emit();
-  return state;
-}
-
-export function resetAll() {
-  state = blankState();
+export function validateImport(text) {
+  let parsed;
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    parsed = JSON.parse(text);
   } catch {
-    // Nothing to remove if storage is blocked.
+    return { ok: false, error: 'That is not valid JSON.' };
   }
-  save();
-  for (const fn of listeners) fn(state);
-}
-
-export function loadDemo() {
-  state = demoState();
-  emit();
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'Expected a JSON object with earned, counters and sessions.' };
+  }
+  if (!Array.isArray(parsed.earned) || !parsed.earned.every((n) => Number.isInteger(n))) {
+    return { ok: false, error: 'The "earned" field must be an array of trophy ids.' };
+  }
+  if (typeof parsed.counters !== 'object' || parsed.counters === null || Array.isArray(parsed.counters)) {
+    return { ok: false, error: 'The "counters" field must be an object of id to count.' };
+  }
+  if (!Array.isArray(parsed.sessions)) {
+    return { ok: false, error: 'The "sessions" field must be an array.' };
+  }
+  for (const s of parsed.sessions) {
+    if (!s || typeof s !== 'object' || typeof s.date !== 'string' || !Number.isFinite(s.estMin) || !Number.isFinite(s.actualMin)) {
+      return { ok: false, error: 'A session entry is missing its date, estimate or actual minutes.' };
+    }
+  }
+  return { ok: true, value: parsed };
 }

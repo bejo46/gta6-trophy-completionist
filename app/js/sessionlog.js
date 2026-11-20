@@ -1,92 +1,181 @@
-// sessionlog.js — the Session Log view: every logged session with its
-// estimate beside its actual time, and the calibration those pairs produce.
-// The multiplier shown here is the same one the Session Builder uses to
-// translate sheet estimates into "at your pace" figures.
+// sessionlog.js — the session log view, the running-session strip, and
+// the timer that turns a started package into a logged session.
+//
+// Starting a session stores { startedAt, estMin, type, picks } in the
+// store; stopping it measures the real elapsed minutes and appends a log
+// entry. That log is what calibration (total actual / total estimate)
+// and pace (hours per week) are derived from in store.js.
 
-import { multiplier, paceHoursPerWeek } from './store.js';
-import { fmtHours } from './data.js';
+import {
+  addSession,
+  clearActive,
+  removeSession,
+  calibration,
+  paceHoursPerWeek,
+  totalActualMin,
+} from './store.js';
+import { trophyById, formatDate } from './data.js';
 
-function el(tag, cls, text) {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
+let timers = [];
+
+export function haltTimers() {
+  for (const t of timers) clearInterval(t);
+  timers = [];
 }
 
-export function renderLog(root, trophies, store) {
-  root.textContent = '';
-  const state = store.getState();
-  const byId = new Map(trophies.map((t) => [t.id, t]));
+export function elapsedText(startedAt, now = Date.now()) {
+  const secs = Math.max(0, Math.floor((now - startedAt) / 1000));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
 
-  const grid = el('div', 'dash-grid');
+// Stop the running session and write it to the log with its real
+// elapsed minutes (minimum 1, so a stopped session always counts).
+export function stopActiveSession(state) {
+  const active = state.active;
+  if (!active) return null;
+  const actualMin = Math.max(1, Math.round((Date.now() - active.startedAt) / 60000));
+  const entry = addSession({
+    date: new Date().toISOString(),
+    type: active.type,
+    estMin: active.estMin,
+    actualMin,
+    picks: active.picks,
+  });
+  clearActive();
+  return entry;
+}
 
-  const cal = el('div', 'panel builder-panel');
-  cal.append(el('p', 'panel-label', 'CALIBRATION — HOW YOUR ESTIMATES ARE CORRECTED'));
-  const mult = multiplier();
-  const lines = [
-    ['Personal estimate multiplier', `×${mult.toFixed(2)}`],
-    ['Sessions logged', String(state.log.length)],
-    ['Total estimated minutes', String(state.log.reduce((s, e) => s + e.estMin, 0))],
-    ['Total actual minutes', String(state.log.reduce((s, e) => s + e.actualMin, 0))],
-    ['Pace — estimate', paceHoursPerWeek() > 0 ? `${fmtHours(paceHoursPerWeek())} h/week` : 'no data yet'],
-  ];
-  for (const [k, v] of lines) {
-    const row = el('div', 'stat-line');
-    row.append(el('span', '', k), el('b', '', v));
-    cal.append(row);
+// The strip under the command bar, visible on every view while a
+// session runs: elapsed clock plus the stop button.
+export function renderActiveStrip(el, ctx) {
+  const active = ctx.state.active;
+  if (!active) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
   }
-  cal.append(el('p', 'small muted',
-    'The multiplier is total actual time divided by total estimated time across the log, ' +
-    'clamped between ×0.50 and ×2.00. Every estimate the builder shows "at your pace" is the ' +
-    'sheet estimate multiplied by this figure, so the sheet learns how long trophies really take you.'));
-  grid.append(cal);
+  el.hidden = false;
+  const names = active.picks
+    .map((id) => trophyById(id))
+    .filter(Boolean)
+    .map((t) => t.name)
+    .join(' · ');
+  el.innerHTML = `
+    <span class="pulse">SESSION RUNNING</span>
+    <span>${active.type} · package estimate ${active.estMin} min</span>
+    <span>elapsed <b data-elapsed>${elapsedText(active.startedAt)}</b></span>
+    <span>${names}</span>
+    <button type="button" data-stop>Stop &amp; log session</button>`;
+  const clock = el.querySelector('[data-elapsed]');
+  const tick = setInterval(() => {
+    if (clock && document.body.contains(clock)) clock.textContent = elapsedText(active.startedAt);
+  }, 1000);
+  timers.push(tick);
+  el.querySelector('[data-stop]').addEventListener('click', () => {
+    stopActiveSession(ctx.state);
+    ctx.refresh();
+  });
+}
 
-  const side = el('div', 'panel analytics-panel');
-  side.append(el('p', 'panel-label', 'HOW A SESSION IS LOGGED'));
-  side.append(el('p', 'small',
-    'Build a package on the Dashboard, start the session, and play. Stopping the session ' +
-    'writes one line here: the package\u2019s estimate next to the minutes the timer actually ' +
-    'measured. Mark the package\u2019s trophies earned from the builder or the Trophy Index.'));
-  if (store.activeSession()) {
-    const a = store.activeSession();
-    side.append(el('p', 'small muted', `A session is running now: ${a.label} (estimate ${a.estMin} min). Stop it from the Dashboard.`));
-  } else {
-    side.append(el('p', 'small muted', 'No session is running. Start one from the Dashboard\u2019s Session Builder.'));
-  }
-  grid.append(side);
+/* ----- the log view ----- */
 
-  const logPanel = el('div', 'panel command-panel');
-  logPanel.style.display = 'block';
-  logPanel.append(el('p', 'panel-label', 'SESSION LOG'));
-  if (state.log.length === 0) {
-    logPanel.append(el('p', 'muted', 'No sessions logged yet. Your first stopped session will appear here.'));
-  } else {
-    const table = el('table');
-    const thead = el('thead');
-    const htr = el('tr');
-    for (const h of ['Date', 'Session', 'Package trophies', 'Estimate', 'Actual', 'Variance']) htr.append(el('th', '', h));
-    thead.append(htr);
-    table.append(thead);
-    const tbody = el('tbody');
-    const entries = [...state.log].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
-    for (const e of entries) {
-      const tr = el('tr');
-      const names = e.trophyIds.map((id) => byId.get(id)?.name ?? `#${id}`).join('; ');
-      const variance = e.actualMin - e.estMin;
-      tr.append(
-        el('td', 'mono', new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })),
-        el('td', '', e.label),
-        el('td', 'small', names),
-        el('td', 'mono', `${e.estMin} min`),
-        el('td', 'mono', `${e.actualMin} min`),
-        el('td', 'mono', `${variance >= 0 ? '+' : ''}${variance} min`),
-      );
-      tbody.append(tr);
-    }
-    table.append(tbody);
-    logPanel.append(table);
-  }
-  grid.append(logPanel);
+export function renderLogView(root, ctx) {
+  const { state } = ctx;
+  const mult = calibration();
+  const pace = paceHoursPerWeek();
+  const totalEst = state.sessions.reduce((s, x) => s + x.estMin, 0);
+  const totalAct = totalActualMin();
 
-  root.append(grid);
+  const rows = state.sessions
+    .slice()
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .map((s) => {
+      const names = (s.picks || [])
+        .map((id) => trophyById(id))
+        .filter(Boolean)
+        .map((t) => t.name)
+        .join(' · ');
+      const ratio = s.estMin > 0 ? (s.actualMin / s.estMin).toFixed(2) : '—';
+      return `<tr>
+        <td>${formatDate(new Date(s.date))}</td>
+        <td>${s.type}</td>
+        <td>${names || '—'}</td>
+        <td>${s.estMin} min</td>
+        <td>${s.actualMin} min</td>
+        <td>×${ratio}</td>
+        <td><button type="button" data-del="${s.id}">Delete</button></td>
+      </tr>`;
+    })
+    .join('');
+
+  root.innerHTML = `
+    <section class="panel">
+      <div class="panel-head"><h2>Calibration</h2><span class="hint">Derived from the log below — it scales every estimate on this sheet.</span></div>
+      <div class="panel-body">
+        <div class="analytics-grid">
+          <div><span class="a-label">Calibration multiplier</span><br><span class="a-value">×${mult.toFixed(2)}</span></div>
+          <div><span class="a-label">Pace (trailing 7 days)</span><br><span class="a-value">${pace.toFixed(1)} h/wk</span></div>
+          <div><span class="a-label">Sessions logged</span><br><span class="a-value">${state.sessions.length}</span></div>
+          <div><span class="a-label">Time played (actual)</span><br><span class="a-value">${(totalAct / 60).toFixed(1)} h</span></div>
+          <div><span class="a-label">Estimated vs actual</span><br><span class="a-value">${totalEst} / ${totalAct} min</span></div>
+          <div><span class="a-label">How it works</span><br><span style="font-size:13px">Multiplier = total actual ÷ total estimate, clamped ×0.50–×2.00. Estimates are always labeled “estimate”.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Log a past session</h2><span class="hint">Forgot to run the timer? Add it by hand — it still calibrates you.</span></div>
+      <div class="panel-body">
+        <form class="manual-log" data-manual>
+          <label>Type
+            <select name="type">
+              <option value="chill">chill</option>
+              <option value="skill">skill</option>
+              <option value="grind">grind</option>
+            </select>
+          </label>
+          <label>Package estimate (min)<input name="est" type="number" min="1" max="2000" required value="60"></label>
+          <label>Actual minutes<input name="actual" type="number" min="1" max="2000" required value="60"></label>
+          <button type="submit">Add to log</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>Session log</h2><span class="hint">${state.sessions.length} session(s) on record.</span></div>
+      <div class="panel-body">
+        ${state.sessions.length === 0
+          ? '<p class="empty-note">No sessions logged yet. Build a package on the dashboard and start one, or add a past session above.</p>'
+          : `<table class="log-table">
+              <thead><tr><th>Date</th><th>Type</th><th>Package</th><th>Estimate</th><th>Actual</th><th>Ratio</th><th></th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>`}
+      </div>
+    </section>`;
+
+  const form = root.querySelector('[data-manual]');
+  form.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(form);
+    addSession({
+      date: new Date().toISOString(),
+      type: String(fd.get('type') || 'chill'),
+      estMin: Number(fd.get('est')),
+      actualMin: Number(fd.get('actual')),
+      picks: [],
+    });
+    ctx.refresh();
+  });
+
+  root.querySelectorAll('[data-del]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      removeSession(btn.getAttribute('data-del'));
+      ctx.refresh();
+    });
+  });
 }
